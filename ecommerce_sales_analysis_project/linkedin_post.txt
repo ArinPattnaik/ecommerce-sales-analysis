@@ -1,0 +1,19 @@
+
+Data Analytics Project – E-Commerce Sales Analysis
+
+I analyzed an e-commerce dataset to uncover sales patterns and profitability trends.
+
+Key Insights:
+• Identified top-performing regions by revenue
+• Analyzed profit contribution by product category
+• Evaluated how discounts impact profit margins
+
+Tools Used:
+Python (Pandas) | Power BI | Excel
+
+This project helped me practice:
+- Data cleaning
+- Exploratory data analysis
+- Data visualization
+
+#DataAnalytics #PowerBI #Python #DataVisualization #AspiringDataAnalyst
