@@ -13,7 +13,7 @@ import os
 # ── Path setup ────────────────────────────────
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from src.data_loader import load_data, preprocess_data
+from src.data_loader import load_data, preprocess_data, prepare_mapped_dataframe
 from src.analysis import (
     key_metrics, period_comparison, sales_by_dimension, profit_by_dimension,
     full_dimension_summary, monthly_trends, quarterly_trends,
@@ -49,22 +49,114 @@ st.set_page_config(
 inject_theme()
 
 # ══════════════════════════════════════════════
-#  DATA LOADING
+#  STATE MANAGEMENT & UPLOAD UI
 # ══════════════════════════════════════════════
-@st.cache_data(ttl=3600)
-def load_all_data():
+if "is_data_loaded" not in st.session_state:
+    st.session_state.is_data_loaded = False
+    st.session_state.df = None
+
+def load_sample_data():
     data_path = os.path.join(os.path.dirname(__file__), "..", "data", "superstore_sales.csv")
     df = load_data(data_path)
     df = preprocess_data(df)
-    return df
+    st.session_state.df = df
+    st.session_state.is_data_loaded = True
 
-raw_df = load_all_data()
+if not st.session_state.is_data_loaded:
+    st.markdown("<h1 style='text-align: center; margin-top: 50px;'>📊 E-Commerce Analytics Platform</h1>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #94a3b8; margin-bottom: 50px;'>Transform your raw data into industrial-grade business intelligence.</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown("""
+        <div style="background-color: var(--card-bg); padding: 30px; border-radius: 12px; border: 1px solid var(--border-color); text-align: center;">
+            <h3 style="margin-top: 0;">Upload Your Data</h3>
+            <p style="color: #94a3b8; font-size: 0.9rem;">Upload a CSV or Excel file containing transaction data. We'll automatically build your dashboard.</p>
+        </div>
+        <br/>
+        """, unsafe_allow_html=True)
+        
+        uploaded_file = st.file_uploader("Choose a CSV or Excel file", type=['csv', 'xlsx', 'xls'])
+        
+        if uploaded_file is not None:
+            try:
+                if uploaded_file.name.endswith('.csv'):
+                    temp_df = pd.read_csv(uploaded_file)
+                else:
+                    temp_df = pd.read_excel(uploaded_file)
+                    
+                st.success(f"✅ Loaded {uploaded_file.name} successfully! Please map your columns below.")
+                
+                st.markdown("### 🗺️ Map Columns")
+                st.caption("Tell us which columns in your file correspond to the required dimensions. If a metric doesn't exist, leave it as 'Not Available'.")
+                
+                target_cols = [
+                    "Order ID", "Order Date", "Region", "Category",
+                    "Sub-Category", "Segment", "Sales", "Profit",
+                    "Discount", "Quantity"
+                ]
+                
+                file_cols = ["Not Available"] + list(temp_df.columns)
+                
+                mapping = {}
+                map_cols = st.columns(2)
+                for i, t_col in enumerate(target_cols):
+                    with map_cols[i % 2]:
+                        # Try to guess
+                        guess = "Not Available"
+                        for f_col in file_cols[1:]:
+                            if t_col.lower() in f_col.lower() or f_col.lower() in t_col.lower():
+                                guess = f_col
+                                break
+                                
+                        idx = file_cols.index(guess) if guess in file_cols else 0
+                        
+                        # Required vs Optional indication
+                        label = f"**{t_col}** *" if t_col in ["Order Date", "Sales"] else t_col
+                        
+                        selected = st.selectbox(label, options=file_cols, index=idx, key=f"map_{t_col}")
+                        if selected != "Not Available":
+                            mapping[t_col] = selected
+                            
+                if st.button("Generate Analytics Dashboard", use_container_width=True, type="primary"):
+                    with st.spinner("Processing data & extracting features..."):
+                        # Prepare mapped
+                        mapped_df = prepare_mapped_dataframe(temp_df, mapping)
+                        # Preprocess
+                        processed_df = preprocess_data(mapped_df)
+                        # Save to state
+                        st.session_state.df = processed_df
+                        st.session_state.is_data_loaded = True
+                        st.rerun()
+                        
+            except Exception as e:
+                st.error(f"Error processing file: {str(e)}")
+        
+        st.markdown("<hr style='margin: 40px 0;'>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #94a3b8;'>Don't have your own data?</p>", unsafe_allow_html=True)
+        
+        if st.button("🚀 Use Sample Data Instead", use_container_width=True):
+            with st.spinner("Loading sample data..."):
+                load_sample_data()
+                st.rerun()
+                
+    st.stop()  # Stop rendering the rest of the dashboard until data is loaded
+    
+
+raw_df = st.session_state.df
 
 # ══════════════════════════════════════════════
 #  SIDEBAR — GLOBAL FILTERS
 # ══════════════════════════════════════════════
 with st.sidebar:
     st.markdown("# 📊 Analytics Platform")
+    
+    if st.button("🔄 Upload New Data", use_container_width=True):
+        st.session_state.is_data_loaded = False
+        st.session_state.df = None
+        st.rerun()
+        
     st.markdown("---")
 
     page = st.radio("Navigate", [
@@ -84,12 +176,18 @@ with st.sidebar:
     # Date range
     min_date = raw_df["Order Date"].min().date()
     max_date = raw_df["Order Date"].max().date()
-    date_range = st.date_input(
-        "Date Range",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-    )
+    
+    # Handle single-date datasets safely
+    if min_date == max_date:
+        date_range = (min_date, max_date)
+        st.info(f"Data is for a single day: {min_date}")
+    else:
+        date_range = st.date_input(
+            "Date Range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+        )
 
     # Region
     regions = st.multiselect(
@@ -117,8 +215,18 @@ with st.sidebar:
 
 # ── Apply Filters ─────────────────────────────
 df = raw_df.copy()
-if len(date_range) == 2:
-    df = df[(df["Order Date"].dt.date >= date_range[0]) & (df["Order Date"].dt.date <= date_range[1])]
+
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    start_date, end_date = date_range
+    df = df[(df["Order Date"].dt.date >= start_date) & (df["Order Date"].dt.date <= end_date)]
+elif isinstance(date_range, tuple) and len(date_range) == 1:
+    # Happens if user only selects one date in the widget before selecting the second
+    start_date = date_range[0]
+    df = df[df["Order Date"].dt.date == start_date]
+elif not isinstance(date_range, tuple):
+     # Single date selected
+    df = df[df["Order Date"].dt.date == date_range]
+
 df = df[df["Region"].isin(regions)]
 df = df[df["Category"].isin(categories)]
 df = df[df["Segment"].isin(segments)]

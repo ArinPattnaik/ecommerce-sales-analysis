@@ -58,6 +58,46 @@ def load_data(data_path: str) -> pd.DataFrame:
 
 
 # ──────────────────────────────────────────────
+# Data Preparation (Dynamic Uploads)
+# ──────────────────────────────────────────────
+def prepare_mapped_dataframe(df: pd.DataFrame, mapping: Dict[str, str]) -> pd.DataFrame:
+    """Prepare a user-uploaded DataFrame using the provided column mapping.
+    
+    If optional fields are missing, fills them with zeros or default strings
+    so the dashboard doesn't crash.
+    """
+    df = df.copy()
+    
+    # Rename mapped columns
+    rename_dict = {user_col: target_col for target_col, user_col in mapping.items() if user_col}
+    df = df.rename(columns=rename_dict)
+    
+    # Ensure all required columns exist, fill with defaults if they don't
+    defaults = {
+        "Order ID": "Auto-Generated",
+        "Order Date": pd.Timestamp.now(),  # We expect mapping to cover this, but just in case
+        "Region": "All Regions",
+        "Category": "General",
+        "Sub-Category": "General",
+        "Segment": "All Customers",
+        "Sales": 0.0,
+        "Profit": 0.0,
+        "Discount": 0.0,
+        "Quantity": 1,
+    }
+    
+    for col, default_val in defaults.items():
+        if col not in df.columns:
+            df[col] = default_val
+            
+    # If Order ID is just the default, try generating unique ones
+    if (df["Order ID"] == "Auto-Generated").all():
+        df["Order ID"] = [f"ORD-{i}" for i in range(1, len(df) + 1)]
+        
+    return df
+
+
+# ──────────────────────────────────────────────
 # Preprocessing & Feature Engineering
 # ──────────────────────────────────────────────
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
