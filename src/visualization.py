@@ -1,148 +1,405 @@
-"""Visualization functions for sales analysis."""
+"""
+Plotly-only Visualization Factory.
+
+Every chart uses a consistent dark theme and the project colour palette.
+Charts are returned as go.Figure objects for direct use in Streamlit.
+"""
 
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import logging
+from src.config import COLORS, CHART_COLORS, PLOTLY_LAYOUT, fmt_currency
 
-logger = logging.getLogger(__name__)
 
-# Set style
-plt.style.use('seaborn-v0_8')
-sns.set_palette("husl")
-
-def plot_sales_by_region(df: pd.DataFrame):
-    """Plot sales by region using matplotlib."""
-    sales_region = df.groupby('Region')['Sales'].sum()
-    plt.figure(figsize=(10, 6))
-    sales_region.plot(kind='bar')
-    plt.title('Sales by Region')
-    plt.xlabel('Region')
-    plt.ylabel('Total Sales')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    return plt.gcf()
-
-def plot_profit_by_category(df: pd.DataFrame):
-    """Plot profit by category."""
-    profit_cat = df.groupby('Category')['Profit'].sum()
-    plt.figure(figsize=(10, 6))
-    profit_cat.plot(kind='bar', color='green')
-    plt.title('Profit by Category')
-    plt.xlabel('Category')
-    plt.ylabel('Total Profit')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    return plt.gcf()
-
-def plot_monthly_trends(df: pd.DataFrame):
-    """Plot monthly sales and profit trends."""
-    monthly = df.groupby(['Year', 'Month']).agg({
-        'Sales': 'sum',
-        'Profit': 'sum'
-    }).reset_index()
-    monthly['Date'] = pd.to_datetime(monthly[['Year', 'Month']].assign(day=1))
-
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8))
-
-    ax1.plot(monthly['Date'], monthly['Sales'], marker='o')
-    ax1.set_title('Monthly Sales Trend')
-    ax1.set_ylabel('Sales')
-    ax1.grid(True)
-
-    ax2.plot(monthly['Date'], monthly['Profit'], marker='o', color='green')
-    ax2.set_title('Monthly Profit Trend')
-    ax2.set_ylabel('Profit')
-    ax2.set_xlabel('Date')
-    ax2.grid(True)
-
-    plt.tight_layout()
+def _apply_theme(fig: go.Figure) -> go.Figure:
+    """Apply project dark theme to any figure."""
+    fig.update_layout(**PLOTLY_LAYOUT)
     return fig
 
-def create_interactive_dashboard(df: pd.DataFrame) -> go.Figure:
-    """Create an interactive dashboard with Plotly."""
-    # Sales by Region
-    sales_region = df.groupby('Region')['Sales'].sum().reset_index()
 
-    # Profit by Category
-    profit_cat = df.groupby('Category')['Profit'].sum().reset_index()
-
-    # Monthly trends
-    monthly = df.groupby(['Year', 'Month']).agg({
-        'Sales': 'sum',
-        'Profit': 'sum'
-    }).reset_index()
-    monthly['Date'] = pd.to_datetime(monthly[['Year', 'Month']].assign(day=1))
-
-    fig = make_subplots(
-        rows=2, cols=2,
-        subplot_titles=('Sales by Region', 'Profit by Category', 'Monthly Sales', 'Monthly Profit'),
-        specs=[[{'type': 'bar'}, {'type': 'bar'}],
-               [{'type': 'scatter'}, {'type': 'scatter'}]]
+# ═══════════════════════════════════════════════
+#  KPI SPARKLINE
+# ═══════════════════════════════════════════════
+def kpi_sparkline(values: list, color: str = COLORS["primary"]) -> go.Figure:
+    """Tiny sparkline for embedding in KPI cards."""
+    fig = go.Figure(go.Scatter(
+        y=values, mode="lines",
+        line=dict(color=color, width=2),
+        fill="tozeroy",
+        fillcolor=f"rgba({int(color[1:3],16)},{int(color[3:5],16)},{int(color[5:7],16)},0.1)",
+    ))
+    fig.update_layout(
+        height=60, margin=dict(l=0, r=0, t=0, b=0),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
+        showlegend=False,
     )
-
-    # Sales by Region
-    fig.add_trace(
-        go.Bar(x=sales_region['Region'], y=sales_region['Sales'], name='Sales by Region'),
-        row=1, col=1
-    )
-
-    # Profit by Category
-    fig.add_trace(
-        go.Bar(x=profit_cat['Category'], y=profit_cat['Profit'], name='Profit by Category'),
-        row=1, col=2
-    )
-
-    # Monthly Sales
-    fig.add_trace(
-        go.Scatter(x=monthly['Date'], y=monthly['Sales'], mode='lines+markers', name='Monthly Sales'),
-        row=2, col=1
-    )
-
-    # Monthly Profit
-    fig.add_trace(
-        go.Scatter(x=monthly['Date'], y=monthly['Profit'], mode='lines+markers', name='Monthly Profit'),
-        row=2, col=2
-    )
-
-    fig.update_layout(height=800, title_text="E-Commerce Sales Dashboard")
     return fig
 
-def plot_correlation_heatmap(df: pd.DataFrame):
-    """Plot correlation heatmap."""
-    numeric_cols = ['Sales', 'Profit', 'Discount', 'Quantity']
-    corr = df[numeric_cols].corr()
 
-    plt.figure(figsize=(8, 6))
-    sns.heatmap(corr, annot=True, cmap='coolwarm', center=0)
-    plt.title('Correlation Heatmap')
-    plt.tight_layout()
-    return plt.gcf()
+# ═══════════════════════════════════════════════
+#  SALES & PROFIT CHARTS
+# ═══════════════════════════════════════════════
+def bar_chart(data: pd.Series, title: str, color: str = COLORS["primary"],
+              horizontal: bool = False) -> go.Figure:
+    """Generic bar chart from a Series."""
+    orientation = "h" if horizontal else "v"
+    x, y = (data.values, data.index) if horizontal else (data.index, data.values)
 
-def plot_discount_impact(df: pd.DataFrame):
-    """Plot discount impact on profit."""
-    discount_analysis = df.groupby(pd.cut(df['Discount'], bins=5)).agg({
-        'Sales': 'mean',
-        'Profit': 'mean'
-    }).reset_index()
-    discount_analysis['Discount Bin'] = discount_analysis['Discount'].astype(str)
+    fig = go.Figure(go.Bar(
+        x=x, y=y, orientation=orientation,
+        marker_color=color,
+        text=[fmt_currency(v) for v in data.values],
+        textposition="auto",
+        textfont=dict(size=11),
+    ))
+    fig.update_layout(title=title, height=400)
+    return _apply_theme(fig)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
 
-    ax1.bar(discount_analysis['Discount Bin'], discount_analysis['Sales'])
-    ax1.set_title('Average Sales by Discount Level')
-    ax1.set_xlabel('Discount Range')
-    ax1.set_ylabel('Average Sales')
-    ax1.tick_params(axis='x', rotation=45)
+def grouped_bar(df: pd.DataFrame, x: str, y_cols: list,
+                title: str, colors: list = None) -> go.Figure:
+    """Grouped bar chart for comparing multiple metrics."""
+    colors = colors or CHART_COLORS
+    fig = go.Figure()
+    for i, col in enumerate(y_cols):
+        fig.add_trace(go.Bar(
+            x=df[x], y=df[col], name=col,
+            marker_color=colors[i % len(colors)],
+        ))
+    fig.update_layout(title=title, barmode="group", height=420)
+    return _apply_theme(fig)
 
-    ax2.bar(discount_analysis['Discount Bin'], discount_analysis['Profit'], color='orange')
-    ax2.set_title('Average Profit by Discount Level')
-    ax2.set_xlabel('Discount Range')
-    ax2.set_ylabel('Average Profit')
-    ax2.tick_params(axis='x', rotation=45)
 
-    plt.tight_layout()
-    return fig
+def sales_profit_bars(df: pd.DataFrame, dim: str, title: str) -> go.Figure:
+    """Side-by-side Sales & Profit bars."""
+    agg = df.groupby(dim).agg(Sales=("Sales", "sum"), Profit=("Profit", "sum")).reset_index()
+    agg = agg.sort_values("Sales", ascending=False)
+    return grouped_bar(agg, dim, ["Sales", "Profit"], title,
+                       [COLORS["primary"], COLORS["secondary"]])
+
+
+# ═══════════════════════════════════════════════
+#  TREEMAP
+# ═══════════════════════════════════════════════
+def sales_treemap(df: pd.DataFrame) -> go.Figure:
+    """Hierarchical treemap: Region → Category → Sub-Category."""
+    fig = px.treemap(
+        df, path=["Region", "Category", "Sub-Category"],
+        values="Sales", color="Profit",
+        color_continuous_scale=["#EF4444", "#334155", "#22C55E"],
+        color_continuous_midpoint=0,
+        title="Sales Breakdown  (size = Sales, color = Profit)",
+    )
+    fig.update_layout(height=550)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  TREND LINES
+# ═══════════════════════════════════════════════
+def trend_line(monthly: pd.DataFrame, title: str = "Monthly Trend") -> go.Figure:
+    """Dual-axis Sales & Profit trend line."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(go.Scatter(
+        x=monthly["Date"], y=monthly["Sales"],
+        mode="lines+markers", name="Sales",
+        line=dict(color=COLORS["primary"], width=2.5),
+        marker=dict(size=5),
+    ), secondary_y=False)
+
+    fig.add_trace(go.Scatter(
+        x=monthly["Date"], y=monthly["Profit"],
+        mode="lines+markers", name="Profit",
+        line=dict(color=COLORS["secondary"], width=2.5),
+        marker=dict(size=5),
+    ), secondary_y=True)
+
+    fig.update_layout(title=title, height=420, hovermode="x unified")
+    fig.update_yaxes(title_text="Sales ($)", secondary_y=False, gridcolor="rgba(71,85,105,0.2)")
+    fig.update_yaxes(title_text="Profit ($)", secondary_y=True, gridcolor="rgba(71,85,105,0.2)")
+    return _apply_theme(fig)
+
+
+def forecast_chart(forecast_df: pd.DataFrame) -> go.Figure:
+    """Actual + Forecast overlay."""
+    actual   = forecast_df[forecast_df["Type"] == "Actual"]
+    forecast = forecast_df[forecast_df["Type"] == "Forecast"]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=actual["Date"], y=actual["Sales"],
+        mode="lines+markers", name="Actual",
+        line=dict(color=COLORS["primary"], width=2.5),
+    ))
+    fig.add_trace(go.Scatter(
+        x=forecast["Date"], y=forecast["Sales"],
+        mode="lines+markers", name="Forecast",
+        line=dict(color=COLORS["accent"], width=2.5, dash="dash"),
+        marker=dict(symbol="diamond", size=7),
+    ))
+    fig.update_layout(title="Sales Forecast (EMA-Based)", height=420, hovermode="x unified")
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  PIE / DONUT
+# ═══════════════════════════════════════════════
+def donut_chart(labels: list, values: list, title: str) -> go.Figure:
+    """Donut chart."""
+    fig = go.Figure(go.Pie(
+        labels=labels, values=values,
+        hole=0.55,
+        marker=dict(colors=CHART_COLORS[:len(labels)]),
+        textinfo="label+percent",
+        textfont=dict(size=12),
+    ))
+    fig.update_layout(title=title, height=380, showlegend=True)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  SCATTER / BUBBLE
+# ═══════════════════════════════════════════════
+def scatter_sales_profit(df: pd.DataFrame, dim: str = "Sub-Category") -> go.Figure:
+    """Scatter plot of Sales vs Profit per dimension."""
+    agg = df.groupby(dim).agg(
+        Sales=("Sales", "sum"),
+        Profit=("Profit", "sum"),
+        Quantity=("Quantity", "sum"),
+        Avg_Discount=("Discount", "mean"),
+    ).reset_index()
+
+    fig = px.scatter(
+        agg, x="Sales", y="Profit", size="Quantity",
+        color="Avg_Discount", color_continuous_scale=["#22C55E", "#F59E0B", "#EF4444"],
+        hover_name=dim, title=f"Sales vs Profit by {dim}  (size=Qty, color=Discount)",
+        size_max=40,
+    )
+    # Add zero-profit line
+    fig.add_hline(y=0, line_dash="dash", line_color=COLORS["danger"], opacity=0.5,
+                  annotation_text="Break-even", annotation_font_color=COLORS["danger"])
+    fig.update_layout(height=480)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  HEATMAP
+# ═══════════════════════════════════════════════
+def sales_heatmap(df: pd.DataFrame) -> go.Figure:
+    """Month × Category sales heatmap."""
+    pivot = df.pivot_table(index="Category", columns="Month", values="Sales", aggfunc="sum").fillna(0)
+    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+              "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    cols_in_data = [m for m in range(1, 13) if m in pivot.columns]
+    col_labels = [months[m - 1] for m in cols_in_data]
+
+    fig = go.Figure(go.Heatmap(
+        z=pivot[cols_in_data].values,
+        x=col_labels, y=pivot.index.tolist(),
+        colorscale=[[0, "#1E293B"], [0.5, "#6366F1"], [1, "#C084FC"]],
+        text=[[fmt_currency(v) for v in row] for row in pivot[cols_in_data].values],
+        texttemplate="%{text}",
+        textfont=dict(size=10),
+        hovertemplate="Category: %{y}<br>Month: %{x}<br>Sales: %{text}<extra></extra>",
+    ))
+    fig.update_layout(title="Sales Heatmap — Month × Category", height=350)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  CORRELATION HEATMAP
+# ═══════════════════════════════════════════════
+def correlation_heatmap(corr_matrix: pd.DataFrame) -> go.Figure:
+    """Correlation matrix heatmap."""
+    fig = go.Figure(go.Heatmap(
+        z=corr_matrix.values,
+        x=corr_matrix.columns.tolist(),
+        y=corr_matrix.index.tolist(),
+        colorscale=[[0, "#EF4444"], [0.5, "#1E293B"], [1, "#22C55E"]],
+        zmid=0,
+        text=corr_matrix.round(2).values,
+        texttemplate="%{text}",
+        textfont=dict(size=13),
+    ))
+    fig.update_layout(title="Correlation Matrix", height=400)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  WATERFALL
+# ═══════════════════════════════════════════════
+def profit_waterfall(df: pd.DataFrame, dim: str = "Category") -> go.Figure:
+    """Waterfall chart of profit contributions."""
+    agg = df.groupby(dim)["Profit"].sum().sort_values(ascending=False).reset_index()
+
+    fig = go.Figure(go.Waterfall(
+        x=agg[dim], y=agg["Profit"],
+        textposition="outside",
+        text=[fmt_currency(v) for v in agg["Profit"]],
+        connector=dict(line=dict(color=COLORS["border"])),
+        increasing=dict(marker=dict(color=COLORS["success"])),
+        decreasing=dict(marker=dict(color=COLORS["danger"])),
+    ))
+    fig.update_layout(title=f"Profit Waterfall by {dim}", height=420)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  PARETO (ABC)
+# ═══════════════════════════════════════════════
+def pareto_chart(abc_df: pd.DataFrame) -> go.Figure:
+    """Pareto chart for ABC analysis."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    colors = [COLORS["success"] if c == "A" else (COLORS["accent"] if c == "B" else COLORS["danger"])
+              for c in abc_df["Class"]]
+
+    fig.add_trace(go.Bar(
+        x=abc_df["Sub-Category"], y=abc_df["Sales"],
+        name="Sales", marker_color=colors,
+        text=[fmt_currency(v) for v in abc_df["Sales"]],
+        textposition="auto", textfont=dict(size=10),
+    ), secondary_y=False)
+
+    fig.add_trace(go.Scatter(
+        x=abc_df["Sub-Category"], y=abc_df["Cumulative Share %"],
+        name="Cumulative %", mode="lines+markers",
+        line=dict(color=COLORS["accent"], width=2.5),
+        marker=dict(size=6),
+    ), secondary_y=True)
+
+    # Reference lines
+    fig.add_hline(y=80, line_dash="dot", line_color=COLORS["success"], opacity=0.5,
+                  annotation_text="80%", secondary_y=True)
+    fig.add_hline(y=95, line_dash="dot", line_color=COLORS["accent"], opacity=0.5,
+                  annotation_text="95%", secondary_y=True)
+
+    fig.update_layout(title="ABC Product Classification (Pareto)", height=480)
+    fig.update_yaxes(title_text="Sales ($)", secondary_y=False)
+    fig.update_yaxes(title_text="Cumulative %", secondary_y=True, range=[0, 105])
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  ANOMALY CHART
+# ═══════════════════════════════════════════════
+def anomaly_chart(anomaly_df: pd.DataFrame) -> go.Figure:
+    """Time series with anomaly flags."""
+    normal  = anomaly_df[~anomaly_df["Is Anomaly"]]
+    anomaly = anomaly_df[anomaly_df["Is Anomaly"]]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=normal["Date"], y=normal["Sales"],
+        mode="lines+markers", name="Normal",
+        line=dict(color=COLORS["primary"], width=2),
+        marker=dict(size=5),
+    ))
+    if len(anomaly) > 0:
+        fig.add_trace(go.Scatter(
+            x=anomaly["Date"], y=anomaly["Sales"],
+            mode="markers", name="Anomaly",
+            marker=dict(color=COLORS["danger"], size=14, symbol="x",
+                        line=dict(width=2, color=COLORS["danger"])),
+        ))
+
+    # Mean ± threshold bands
+    mean = anomaly_df["Sales"].mean()
+    std  = anomaly_df["Sales"].std()
+    from src.config import ANOMALY_Z_THRESHOLD as Z
+    fig.add_hline(y=mean, line_dash="dash", line_color=COLORS["text_muted"], opacity=0.5,
+                  annotation_text="Mean")
+    fig.add_hrect(y0=mean - Z * std, y1=mean + Z * std,
+                  fillcolor=COLORS["primary"], opacity=0.05,
+                  line_width=0, annotation_text="Normal Band")
+
+    fig.update_layout(title="Anomaly Detection — Monthly Sales", height=440, hovermode="x unified")
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  RFM SCATTER
+# ═══════════════════════════════════════════════
+def rfm_scatter(rfm_df: pd.DataFrame) -> go.Figure:
+    """3D-style scatter of RFM segments."""
+    fig = px.scatter(
+        rfm_df, x="Recency", y="Monetary", size="Frequency",
+        color="Segment Label", title="RFM Customer Segmentation",
+        color_discrete_sequence=CHART_COLORS,
+        hover_name="Customer Proxy",
+        size_max=35,
+    )
+    fig.update_layout(height=500)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  COHORT HEATMAP
+# ═══════════════════════════════════════════════
+def cohort_heatmap(retention: pd.DataFrame) -> go.Figure:
+    """Retention cohort heatmap."""
+    fig = go.Figure(go.Heatmap(
+        z=retention.values,
+        x=[f"Month {c}" for c in retention.columns],
+        y=[str(i) for i in retention.index],
+        colorscale=[[0, "#1E293B"], [0.5, "#6366F1"], [1, "#22C55E"]],
+        text=retention.round(0).values.astype(str),
+        texttemplate="%{text}%",
+        textfont=dict(size=10),
+    ))
+    fig.update_layout(title="Cohort Retention Heatmap (%)", height=400)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  DISCOUNT IMPACT
+# ═══════════════════════════════════════════════
+def discount_impact_chart(discount_df: pd.DataFrame) -> go.Figure:
+    """Grouped bar of margin & avg profit by discount tier."""
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+
+    fig.add_trace(go.Bar(
+        x=discount_df["Discount Tier"].astype(str),
+        y=discount_df["Total_Sales"],
+        name="Total Sales",
+        marker_color=COLORS["primary"],
+    ), secondary_y=False)
+
+    fig.add_trace(go.Scatter(
+        x=discount_df["Discount Tier"].astype(str),
+        y=discount_df["Margin %"],
+        mode="lines+markers", name="Margin %",
+        line=dict(color=COLORS["danger"], width=2.5),
+        marker=dict(size=8),
+    ), secondary_y=True)
+
+    fig.update_layout(title="Discount Impact on Sales & Margin", height=420)
+    fig.update_yaxes(title_text="Sales ($)", secondary_y=False)
+    fig.update_yaxes(title_text="Margin %", secondary_y=True)
+    return _apply_theme(fig)
+
+
+# ═══════════════════════════════════════════════
+#  YOY COMPARISON
+# ═══════════════════════════════════════════════
+def yoy_chart(yearly: pd.DataFrame) -> go.Figure:
+    """Year-over-Year comparison bars."""
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=yearly["Year"].astype(str), y=yearly["Sales"],
+        name="Sales", marker_color=COLORS["primary"],
+        text=[fmt_currency(v) for v in yearly["Sales"]],
+        textposition="auto",
+    ))
+    fig.add_trace(go.Bar(
+        x=yearly["Year"].astype(str), y=yearly["Profit"],
+        name="Profit", marker_color=COLORS["secondary"],
+        text=[fmt_currency(v) for v in yearly["Profit"]],
+        textposition="auto",
+    ))
+    fig.update_layout(title="Year-over-Year Performance", barmode="group", height=400)
+    return _apply_theme(fig)
