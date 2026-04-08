@@ -5,12 +5,13 @@ import argparse
 import sys
 import os
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+# Add project root to path
+sys.path.insert(0, os.path.dirname(__file__))
 
-from data_loader import load_data, preprocess_data, save_processed_data
-from analysis import key_metrics, sales_by_dimension, monthly_trends
-from visualization import create_interactive_dashboard
+from src.data_loader import load_data, preprocess_data, save_processed_data
+from src.analysis import key_metrics, sales_by_dimension, monthly_trends
+from src.config import fmt_currency
+
 
 def main():
     parser = argparse.ArgumentParser(description='E-Commerce Sales Analysis')
@@ -18,8 +19,6 @@ def main():
                        help='Path to the data file')
     parser.add_argument('--output', default='data/processed/cleaned_superstore.csv',
                        help='Path to save processed data')
-    parser.add_argument('--dashboard', action='store_true',
-                       help='Generate interactive dashboard')
 
     args = parser.parse_args()
 
@@ -35,9 +34,9 @@ def main():
     metrics = key_metrics(df)
     for key, value in metrics.items():
         if isinstance(value, float):
-            print(f"{key}: {value:,.2f}")
+            print(f"  {key}: {value:,.2f}")
         else:
-            print(f"{key}: {value:,}")
+            print(f"  {key}: {value:,}")
 
     # Sales analysis
     print("\nTop Regions by Sales:")
@@ -52,12 +51,9 @@ def main():
     save_processed_data(df, args.output)
     print(f"\nProcessed data saved to {args.output}")
 
-    # Generate dashboard if requested
-    if args.dashboard:
-        print("\nGenerating interactive dashboard...")
-        fig = create_interactive_dashboard(df)
-        fig.write_html("dashboard.html")
-        print("Dashboard saved as dashboard.html")
+    print("\nTo launch the dashboard, run:")
+    print("  streamlit run app/dashboard.py")
+
 
 if __name__ == "__main__":
     main()
