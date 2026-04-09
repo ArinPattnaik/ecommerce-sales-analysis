@@ -237,7 +237,6 @@ hr {
 /* ─── Hide Streamlit branding ─── */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 
 /* ═══════════════════════════════════════════
    MOBILE RESPONSIVE (< 768px)
