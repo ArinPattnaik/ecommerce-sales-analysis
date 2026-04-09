@@ -139,10 +139,14 @@ if not st.session_state.is_data_loaded:
         uploaded_file = st.file_uploader(
             "Drag and drop or browse",
             type=["csv", "xlsx", "xls"],
-            help="Accepts CSV, XLSX, and XLS files up to 200MB.",
+            help="Accepts CSV, XLSX, and XLS files up to 5MB.",
         )
 
         if uploaded_file is not None:
+            if uploaded_file.size > 5 * 1024 * 1024:
+                st.error("❌ File is too large! Please upload a file smaller than 5MB to ensure optimal performance.")
+                st.stop()
+                
             try:
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith(".csv"):
