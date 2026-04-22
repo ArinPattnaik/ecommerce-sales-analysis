@@ -4,7 +4,7 @@ build-backend = "setuptools.backends._legacy:_Backend"
 
 [project]
 name = "universal-analytics-platform"
-version = "2.0.0"
+version = "0.2.0"
 description = "Upload any CSV or Excel file — auto-detect columns, build dashboards, generate insights."
 readme = "README.md"
 license = {text = "MIT"}
