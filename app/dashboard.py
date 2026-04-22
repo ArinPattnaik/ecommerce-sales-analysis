@@ -31,6 +31,7 @@ from app.theme import (
     inject_theme, render_insight_card, render_footer,
     section_header, render_file_badge,
 )
+from src.smart_mapper import auto_map_columns, get_mapping_confidence, apply_mapping
 
 
 # ══════════════════════════════════════════════
@@ -176,6 +177,80 @@ if not st.session_state.is_data_loaded:
 
                 with st.expander("👀 Preview Data (first 5 rows)", expanded=True):
                     st.dataframe(temp_df.head(), width='stretch')
+
+                # ── Smart Column Mapping ──────────────
+                mapping = auto_map_columns(temp_df)
+                confidence = get_mapping_confidence(mapping)
+
+                col_types = detect_column_types(temp_df)
+
+                st.markdown("### 🔍 Auto-Detected Column Types")
+                dc = st.columns(4)
+                with dc[0]:
+                    st.metric("Numeric", len(col_types["numeric"]))
+                    if col_types["numeric"]:
+                        st.caption(", ".join(col_types["numeric"][:5]))
+                with dc[1]:
+                    st.metric("Categorical", len(col_types["categorical"]))
+                    if col_types["categorical"]:
+                        st.caption(", ".join(col_types["categorical"][:5]))
+                with dc[2]:
+                    st.metric("Date/Time", len(col_types["datetime"]))
+                    if col_types["datetime"]:
+                        st.caption(", ".join(col_types["datetime"][:5]))
+                with dc[3]:
+                    st.metric("ID / Other", len(col_types["id"]) + len(col_types["boolean"]))
+
+                # Show e-commerce detection result
+                if confidence["is_ecommerce"]:
+                    st.markdown("### 🛒 E-Commerce Data Detected!")
+                    st.success(
+                        f"Mapped **{confidence['mapped_count']}/{confidence['total_roles']}** "
+                        f"e-commerce fields. Full deep-dive analytics available."
+                    )
+                    with st.expander("📋 Column Mapping Details"):
+                        for role, col in confidence["mapping"].items():
+                            st.markdown(f"- **{role}** ← `{col}`")
+                        if confidence["unmapped_roles"]:
+                            st.caption(f"Unmapped (defaults used): {', '.join(confidence['unmapped_roles'])}")
+
+                    bc1, bc2 = st.columns(2)
+                    with bc1:
+                        if st.button("🛒 E-Commerce Deep Dive", width='stretch', type="primary"):
+                            with st.spinner("Mapping columns & preprocessing..."):
+                                from src.data_loader import preprocess_data
+                                mapped_df = apply_mapping(temp_df, mapping)
+                                processed = preprocess_data(mapped_df)
+                                st.session_state.df = processed
+                                st.session_state.col_types = col_types
+                                st.session_state.filename = uploaded_file.name
+                                st.session_state.mode = "ecommerce"
+                                st.session_state.is_data_loaded = True
+                                st.rerun()
+                    with bc2:
+                        if st.button("📊 Universal Analytics", width='stretch'):
+                            with st.spinner("Auto-detecting types & preprocessing..."):
+                                processed = auto_preprocess(temp_df, col_types)
+                                st.session_state.df = processed
+                                st.session_state.col_types = col_types
+                                st.session_state.filename = uploaded_file.name
+                                st.session_state.mode = "universal"
+                                st.session_state.is_data_loaded = True
+                                st.rerun()
+                else:
+                    if st.button(
+                        "🚀 Generate Analytics Dashboard",
+                        width='stretch',
+                        type="primary",
+                    ):
+                        with st.spinner("Auto-detecting types & preprocessing..."):
+                            processed = auto_preprocess(temp_df, col_types)
+                            st.session_state.df = processed
+                            st.session_state.col_types = col_types
+                            st.session_state.filename = uploaded_file.name
+                            st.session_state.mode = "universal"
+                            st.session_state.is_data_loaded = True
+                            st.rerun()
 
                 col_types = detect_column_types(temp_df)
 
@@ -563,6 +638,12 @@ elif st.session_state.mode == "ecommerce":
         rfm_scatter, cohort_heatmap, discount_impact_chart, yoy_chart,
     )
     from src.config import fmt_currency, fmt_pct, fmt_number
+    from src.ecommerce_intelligence import (
+        customer_lifetime_metrics, compute_clv_summary, estimate_churn,
+        basket_size_trends, order_frequency_distribution,
+        day_of_week_analysis, monthly_seasonality, detect_peak_periods,
+        weekday_vs_weekend, generate_smart_insights,
+    )
 
     with st.sidebar:
         st.markdown("# 📊 Analytics Platform")
@@ -582,6 +663,7 @@ elif st.session_state.mode == "ecommerce":
             "📉 Trends & Forecast",
             "🗺️ Geographic Intelligence",
             "🚨 Anomalies & Alerts",
+            "🧠 Smart Insights",
         ], label_visibility="collapsed")
 
         st.markdown("---")
@@ -791,5 +873,139 @@ elif st.session_state.mode == "ecommerce":
             _apply_layout(fig, title="Anomaly Detection — Monthly Profit", height=440)
             st.plotly_chart(fig, width='stretch')
             st.metric("Profit Anomalies", f"{anom_p['Is Anomaly'].sum()} months flagged")
+
+    elif page == "🧠 Smart Insights":
+        section_header("🧠", "Smart Insights", "AI-powered customer, seasonality & CLV analytics")
+
+        # Compute all intelligence metrics
+        with st.spinner("Computing customer intelligence..."):
+            cust_df = customer_lifetime_metrics(df)
+            clv_summary = compute_clv_summary(cust_df)
+            churn = estimate_churn(df)
+            peaks = detect_peak_periods(df)
+            wdwe = weekday_vs_weekend(df)
+
+        # ── Customer Lifetime Value ───────────
+        if clv_summary:
+            st.markdown("### 💎 Customer Lifetime Value")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Total Customers", f"{clv_summary['total_customers']:,}")
+            c2.metric("Avg CLV", fmt_currency(clv_summary["avg_clv"]))
+            c3.metric("Repeat Rate", f"{clv_summary['repeat_rate_pct']}%")
+            c4.metric("Avg Orders/Customer", f"{clv_summary['avg_orders_per_customer']}")
+
+            c5, c6, c7, c8 = st.columns(4)
+            c5.metric("Avg Order Value", fmt_currency(clv_summary["avg_order_value"]))
+            c6.metric("Avg Basket Size", f"{clv_summary['avg_basket_size']} items")
+            c7.metric("Top 10% CLV", fmt_currency(clv_summary["top_10pct_clv"]))
+            c8.metric("One-Time Buyers", f"{clv_summary['one_time_buyers_pct']}%")
+
+        st.markdown("---")
+
+        # ── Churn Analysis ────────────────────
+        if churn:
+            st.markdown("### 🔄 Customer Retention & Churn")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Active", f"{churn['active']:,} ({churn['active_pct']}%)")
+            c2.metric("At Risk", f"{churn['at_risk']:,} ({churn['at_risk_pct']}%)")
+            c3.metric("Churned", f"{churn['churned']:,} ({churn['churned_pct']}%)")
+
+            # Churn donut
+            churn_labels = ["Active", "At Risk", "Churned"]
+            churn_values = [churn["active"], churn["at_risk"], churn["churned"]]
+            churn_colors = [COLORS["success"], COLORS["warning"], COLORS["danger"]]
+            fig = go.Figure(go.Pie(
+                labels=churn_labels, values=churn_values, hole=0.55,
+                marker=dict(colors=churn_colors),
+                textinfo="label+percent", textfont=dict(size=12),
+            ))
+            _apply_layout(fig, title="Customer Status Distribution", height=380)
+            st.plotly_chart(fig, width='stretch')
+
+        st.markdown("---")
+
+        # ── Order Frequency Distribution ──────
+        if not cust_df.empty:
+            st.markdown("### 📦 Order Frequency Distribution")
+            freq_df = order_frequency_distribution(cust_df)
+            if not freq_df.empty:
+                fig = px.bar(freq_df, x="Orders", y="Customers",
+                             title="How Many Orders Do Customers Place?",
+                             color_discrete_sequence=[COLORS["primary"]])
+                _apply_layout(fig, height=350, showlegend=False)
+                st.plotly_chart(fig, width='stretch')
+
+        st.markdown("---")
+
+        # ── Seasonality ───────────────────────
+        st.markdown("### 📅 Seasonality & Date Intelligence")
+        t1, t2, t3 = st.tabs(["Day of Week", "Monthly Patterns", "Peak Periods"])
+
+        with t1:
+            dow = day_of_week_analysis(df)
+            if not dow.empty:
+                fig = px.bar(dow, x="Day", y="total_sales",
+                             title="Sales by Day of Week",
+                             color="is_weekend",
+                             color_discrete_map={True: COLORS["accent"], False: COLORS["primary"]},
+                             labels={"is_weekend": "Weekend"})
+                _apply_layout(fig, height=380)
+                st.plotly_chart(fig, width='stretch')
+                if wdwe:
+                    wc1, wc2 = st.columns(2)
+                    wc1.metric("Weekday Avg Order", fmt_currency(wdwe["weekday_avg_order"]))
+                    wc2.metric("Weekend Avg Order", fmt_currency(wdwe["weekend_avg_order"]))
+
+        with t2:
+            season = monthly_seasonality(df)
+            if not season.empty:
+                fig = px.bar(season, x="Month", y="seasonality_index",
+                             title="Monthly Seasonality Index (100 = average)",
+                             color="seasonality_index",
+                             color_continuous_scale=["#EF4444", "#F59E0B", "#22C55E"])
+                fig.add_hline(y=100, line_dash="dash", line_color=COLORS["text_muted"],
+                              annotation_text="Average")
+                _apply_layout(fig, height=380)
+                st.plotly_chart(fig, width='stretch')
+
+        with t3:
+            if peaks:
+                st.markdown("#### 🏆 Top Peak Sales Periods")
+                for i, p in enumerate(peaks):
+                    st.markdown(
+                        f"**{i+1}. {p['period']}** — {fmt_currency(p['sales'])} "
+                        f"({p['pct_above_avg']:+.0f}% vs average)"
+                    )
+
+        st.markdown("---")
+
+        # ── Basket Trends ─────────────────────
+        basket = basket_size_trends(df)
+        if not basket.empty:
+            st.markdown("### 🛒 Basket Size Trends")
+            bc1, bc2 = st.columns(2)
+            with bc1:
+                fig = px.line(basket, x="Period", y="avg_basket_items",
+                              title="Avg Items per Order", markers=True)
+                _apply_layout(fig, height=350)
+                fig.update_traces(line=dict(color=COLORS["primary"], width=2.5))
+                st.plotly_chart(fig, width='stretch')
+            with bc2:
+                fig = px.line(basket, x="Period", y="avg_basket_value",
+                              title="Avg Order Value", markers=True)
+                _apply_layout(fig, height=350)
+                fig.update_traces(line=dict(color=COLORS["secondary"], width=2.5))
+                st.plotly_chart(fig, width='stretch')
+
+        st.markdown("---")
+
+        # ── AI Insights ───────────────────────
+        st.markdown("### 💡 AI-Generated Recommendations")
+        smart_insights = generate_smart_insights(df, clv_summary, churn, peaks, wdwe)
+        if smart_insights:
+            for ins in smart_insights:
+                render_insight_card(ins)
+        else:
+            st.info("Not enough data to generate smart insights.")
 
     render_footer()
