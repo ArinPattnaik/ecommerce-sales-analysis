@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.0](https://github.com/ArinPattnaik/ecommerce-sales-analysis/compare/v0.1.0...v0.2.0) (2026-04-22)
+
+
+### Features
+
+* v2.0.0 — smart column mapper, CLV, churn, seasonality intelligence ([96a5dc3](https://github.com/ArinPattnaik/ecommerce-sales-analysis/commit/96a5dc31bbac87cde275d3044af59d19d2ae7873))
+
 ## [2.0.0](https://github.com/ArinPattnaik/ecommerce-sales-analysis/releases/tag/v2.0.0) (2026-04-23)
 
 ### 🛒 Smart Column Mapper — E-Commerce Auto-Detection
