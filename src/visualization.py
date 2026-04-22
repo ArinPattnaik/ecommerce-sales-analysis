@@ -19,6 +19,22 @@ def _apply_theme(fig: go.Figure) -> go.Figure:
     return fig
 
 
+def _empty_figure(message: str = "No data available") -> go.Figure:
+    """Return a themed empty figure with a message annotation."""
+    fig = go.Figure()
+    fig.add_annotation(
+        text=message, xref="paper", yref="paper",
+        x=0.5, y=0.5, showarrow=False,
+        font=dict(size=16, color=COLORS["text_muted"]),
+    )
+    fig.update_layout(
+        height=300,
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+    )
+    return _apply_theme(fig)
+
+
 # ═══════════════════════════════════════════════
 #  KPI SPARKLINE
 # ═══════════════════════════════════════════════
@@ -45,6 +61,8 @@ def kpi_sparkline(values: list, color: str = COLORS["primary"]) -> go.Figure:
 def bar_chart(data: pd.Series, title: str, color: str = COLORS["primary"],
               horizontal: bool = False) -> go.Figure:
     """Generic bar chart from a Series."""
+    if data is None or len(data) == 0:
+        return _empty_figure(f"{title} — no data")
     orientation = "h" if horizontal else "v"
     x, y = (data.values, data.index) if horizontal else (data.index, data.values)
 
@@ -86,6 +104,8 @@ def sales_profit_bars(df: pd.DataFrame, dim: str, title: str) -> go.Figure:
 # ═══════════════════════════════════════════════
 def sales_treemap(df: pd.DataFrame) -> go.Figure:
     """Hierarchical treemap: Region → Category → Sub-Category."""
+    if df is None or len(df) == 0:
+        return _empty_figure("Sales Treemap — no data")
     fig = px.treemap(
         df, path=["Region", "Category", "Sub-Category"],
         values="Sales", color="Profit",
@@ -102,6 +122,8 @@ def sales_treemap(df: pd.DataFrame) -> go.Figure:
 # ═══════════════════════════════════════════════
 def trend_line(monthly: pd.DataFrame, title: str = "Monthly Trend") -> go.Figure:
     """Dual-axis Sales & Profit trend line."""
+    if monthly is None or len(monthly) == 0:
+        return _empty_figure(f"{title} — no data")
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     fig.add_trace(go.Scatter(
@@ -166,6 +188,8 @@ def donut_chart(labels: list, values: list, title: str) -> go.Figure:
 # ═══════════════════════════════════════════════
 def scatter_sales_profit(df: pd.DataFrame, dim: str = "Sub-Category") -> go.Figure:
     """Scatter plot of Sales vs Profit per dimension."""
+    if df is None or len(df) == 0:
+        return _empty_figure(f"Sales vs Profit by {dim} — no data")
     agg = df.groupby(dim).agg(
         Sales=("Sales", "sum"),
         Profit=("Profit", "sum"),
@@ -215,6 +239,8 @@ def sales_heatmap(df: pd.DataFrame) -> go.Figure:
 # ═══════════════════════════════════════════════
 def correlation_heatmap(corr_matrix: pd.DataFrame) -> go.Figure:
     """Correlation matrix heatmap."""
+    if corr_matrix is None or corr_matrix.empty:
+        return _empty_figure("Correlation Matrix — insufficient data")
     fig = go.Figure(go.Heatmap(
         z=corr_matrix.values,
         x=corr_matrix.columns.tolist(),
@@ -234,6 +260,8 @@ def correlation_heatmap(corr_matrix: pd.DataFrame) -> go.Figure:
 # ═══════════════════════════════════════════════
 def profit_waterfall(df: pd.DataFrame, dim: str = "Category") -> go.Figure:
     """Waterfall chart of profit contributions."""
+    if df is None or len(df) == 0:
+        return _empty_figure(f"Profit Waterfall by {dim} — no data")
     agg = df.groupby(dim)["Profit"].sum().sort_values(ascending=False).reset_index()
 
     fig = go.Figure(go.Waterfall(
@@ -253,6 +281,8 @@ def profit_waterfall(df: pd.DataFrame, dim: str = "Category") -> go.Figure:
 # ═══════════════════════════════════════════════
 def pareto_chart(abc_df: pd.DataFrame) -> go.Figure:
     """Pareto chart for ABC analysis."""
+    if abc_df is None or len(abc_df) == 0:
+        return _empty_figure("ABC Pareto — no data")
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     colors = [COLORS["success"] if c == "A" else (COLORS["accent"] if c == "B" else COLORS["danger"])

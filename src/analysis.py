@@ -186,9 +186,14 @@ def rfm_analysis(df: pd.DataFrame) -> pd.DataFrame:
 
     Since the dataset lacks a Customer ID, we use Segment + Region
     as a customer proxy to demonstrate the methodology.
+
+    Note: Null Segment/Region values are filled with 'Unknown' to avoid
+    groupby issues.
     """
-    # Create a customer proxy
+    # Create a customer proxy (handle nulls)
     df = df.copy()
+    df["Segment"] = df["Segment"].fillna("Unknown")
+    df["Region"] = df["Region"].fillna("Unknown")
     df["Customer Proxy"] = df["Segment"] + " | " + df["Region"]
 
     reference_date = df["Order Date"].max() + pd.Timedelta(days=1)
@@ -263,6 +268,8 @@ def abc_analysis(df: pd.DataFrame) -> pd.DataFrame:
 def cohort_analysis(df: pd.DataFrame) -> pd.DataFrame:
     """Monthly cohort retention matrix using Segment+Region proxy."""
     df = df.copy()
+    df["Segment"] = df["Segment"].fillna("Unknown")
+    df["Region"] = df["Region"].fillna("Unknown")
     df["Customer Proxy"] = df["Segment"] + " | " + df["Region"]
     df["Order Period"]   = df["Order Date"].dt.to_period("M")
 
@@ -341,7 +348,17 @@ def sales_forecast(df: pd.DataFrame, periods: int = 6) -> pd.DataFrame:
 #  10. DISCOUNT ROI ANALYSIS
 # ═══════════════════════════════════════════════
 def discount_impact(df: pd.DataFrame) -> pd.DataFrame:
-    """Analyze profit / margin by discount tier."""
+    """Analyze profit / margin by discount tier.
+
+    Creates Discount Tier bins if the column doesn't already exist.
+    Requires 'Discount', 'Order ID', 'Sales', and 'Profit' columns.
+    """
+    required = {"Discount", "Order ID", "Sales", "Profit"}
+    missing = required - set(df.columns)
+    if missing:
+        logger.warning(f"discount_impact: missing columns {missing}, returning empty DataFrame")
+        return pd.DataFrame()
+
     if "Discount Tier" not in df.columns:
         df = df.copy()
         df["Discount Tier"] = pd.cut(

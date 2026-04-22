@@ -26,36 +26,11 @@ from src.generic_analysis import (
     compute_time_aggregates, compute_group_summary,
     detect_outliers, generate_generic_insights,
 )
-from src.config import COLORS
+from src.config import COLORS, CHART_COLORS, PLOTLY_LAYOUT
 from app.theme import (
     inject_theme, render_insight_card, render_footer,
     section_header, render_file_badge,
 )
-
-# ── E-Commerce imports (lazy, only used for sample data) ──
-def _load_ecommerce_modules():
-    from src.data_loader import load_data, preprocess_data
-    from src.analysis import (
-        key_metrics, period_comparison, sales_by_dimension,
-        profit_by_dimension, full_dimension_summary, monthly_trends,
-        quarterly_trends, top_products, bottom_products,
-        customer_segmentation, rfm_analysis, abc_analysis,
-        cohort_analysis, detect_anomalies, sales_forecast,
-        discount_impact, correlation_analysis, yoy_growth,
-    )
-    from src.insights import (
-        generate_executive_summary, generate_product_recommendations,
-        generate_anomaly_narrative,
-    )
-    from src.visualization import (
-        kpi_sparkline, bar_chart, grouped_bar, sales_profit_bars,
-        sales_treemap, trend_line, forecast_chart, donut_chart,
-        scatter_sales_profit, sales_heatmap, correlation_heatmap,
-        profit_waterfall, pareto_chart, anomaly_chart,
-        rfm_scatter, cohort_heatmap, discount_impact_chart, yoy_chart,
-    )
-    from src.config import fmt_currency, fmt_pct, fmt_number
-    return locals()
 
 
 # ══════════════════════════════════════════════
@@ -70,32 +45,64 @@ st.set_page_config(
 
 inject_theme()
 
+
 # ══════════════════════════════════════════════
-#  PLOTLY DEFAULTS
+#  SHARED HELPERS
 # ══════════════════════════════════════════════
-CHART_COLORS = [
-    "#6366F1", "#22C55E", "#F59E0B", "#EF4444", "#3B82F6",
-    "#EC4899", "#14B8A6", "#F97316", "#8B5CF6", "#06B6D4",
-]
-
-_BASE_LAYOUT = dict(
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(color="#F8FAFC", family="Inter"),
-    hovermode="x unified",
-    margin=dict(l=40, r=20, t=50, b=40),
-    colorway=CHART_COLORS,
-    xaxis=dict(gridcolor="rgba(71,85,105,0.3)"),
-    yaxis=dict(gridcolor="rgba(71,85,105,0.3)"),
-)
-
-
 def _apply_layout(fig, **overrides):
     """Apply base dark layout to any Plotly figure with optional overrides."""
-    layout = {**_BASE_LAYOUT, "height": 420}
+    layout = {**PLOTLY_LAYOUT, "height": 420, "colorway": CHART_COLORS}
     layout.update(overrides)
     fig.update_layout(**layout)
     return fig
+
+
+def download_csv(dataframe, filename, label="📥 Download CSV"):
+    """Render a CSV download button."""
+    csv = dataframe.to_csv(index=False).encode("utf-8")
+    st.download_button(label, csv, filename, "text/csv")
+
+
+def safe_chart(chart_fn, *args, **kwargs):
+    """Render a chart with error boundary — shows warning instead of crashing."""
+    try:
+        fig = chart_fn(*args, **kwargs)
+        st.plotly_chart(fig, width='stretch')
+    except Exception as e:
+        st.warning(f"⚠️ Could not render chart: {e}")
+
+
+# ══════════════════════════════════════════════
+#  CACHING WRAPPERS
+# ══════════════════════════════════════════════
+@st.cache_data(show_spinner=False)
+def cached_detect_column_types(df_hash, df):
+    return detect_column_types(df)
+
+
+@st.cache_data(show_spinner=False)
+def cached_auto_preprocess(df_hash, df, col_types):
+    return auto_preprocess(df, col_types)
+
+
+@st.cache_data(show_spinner=False)
+def cached_data_profile(df_hash, df):
+    return data_profile(df)
+
+
+@st.cache_data(show_spinner=False)
+def cached_compute_kpis(df_hash, df, numeric_cols):
+    return compute_kpis(df, numeric_cols)
+
+
+@st.cache_data(show_spinner=False)
+def cached_generic_insights(df_hash, df, col_types):
+    return generate_generic_insights(df, col_types)
+
+
+def _df_hash(df):
+    """Create a lightweight hash key for caching based on shape + sample."""
+    return f"{df.shape}_{hash(tuple(df.columns))}_{df.iloc[0].values.tobytes() if len(df) > 0 else 0}"
 
 
 # ══════════════════════════════════════════════
@@ -144,9 +151,9 @@ if not st.session_state.is_data_loaded:
 
         if uploaded_file is not None:
             if uploaded_file.size > 5 * 1024 * 1024:
-                st.error("❌ File is too large! Please upload a file smaller than 5MB to ensure optimal performance.")
+                st.error("❌ File is too large! Please upload a file smaller than 5MB.")
                 st.stop()
-                
+
             try:
                 with st.spinner("Reading file..."):
                     if uploaded_file.name.endswith(".csv"):
@@ -158,13 +165,17 @@ if not st.session_state.is_data_loaded:
                     else:
                         temp_df = pd.read_excel(uploaded_file)
 
+                if temp_df.empty:
+                    st.error("❌ The uploaded file is empty.")
+                    st.stop()
+
                 st.success(
                     f"✅ **{uploaded_file.name}** loaded — "
                     f"{temp_df.shape[0]:,} rows × {temp_df.shape[1]} columns"
                 )
 
                 with st.expander("👀 Preview Data (first 5 rows)", expanded=True):
-                    st.dataframe(temp_df.head(), use_container_width=True)
+                    st.dataframe(temp_df.head(), width='stretch')
 
                 col_types = detect_column_types(temp_df)
 
@@ -187,7 +198,7 @@ if not st.session_state.is_data_loaded:
 
                 if st.button(
                     "🚀 Generate Analytics Dashboard",
-                    use_container_width=True,
+                    width='stretch',
                     type="primary",
                 ):
                     with st.spinner("Auto-detecting types & preprocessing..."):
@@ -209,7 +220,7 @@ if not st.session_state.is_data_loaded:
             unsafe_allow_html=True,
         )
 
-        if st.button("📦 Use Sample E-Commerce Data", use_container_width=True):
+        if st.button("📦 Use Sample E-Commerce Data", width='stretch'):
             with st.spinner("Loading sample data..."):
                 from src.data_loader import load_data, preprocess_data
                 data_path = os.path.join(
@@ -232,11 +243,6 @@ if not st.session_state.is_data_loaded:
 raw_df = st.session_state.df
 
 
-def download_csv(dataframe, filename, label="📥 Download CSV"):
-    csv = dataframe.to_csv(index=False).encode("utf-8")
-    st.download_button(label, csv, filename, "text/csv")
-
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  UNIVERSAL ANALYTICS MODE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -256,7 +262,7 @@ if st.session_state.mode == "universal":
 
     with st.sidebar:
         st.markdown("# 📊 Analytics")
-        if st.button("⬅️ Upload New File", use_container_width=True):
+        if st.button("⬅️ Upload New File", width='stretch'):
             reset_state()
             st.rerun()
         st.markdown("---")
@@ -267,7 +273,8 @@ if st.session_state.mode == "universal":
     # ── PAGE: OVERVIEW ──────────────────────────
     if page == "🏠 Overview":
         st.markdown(f"# 🏠 Overview — {st.session_state.filename}")
-        profile = data_profile(raw_df)
+        dfh = _df_hash(raw_df)
+        profile = cached_data_profile(dfh, raw_df)
         st.caption(
             f"{profile['rows']:,} rows × {profile['columns']} columns · "
             f"{profile['memory_mb']:.1f} MB · "
@@ -276,7 +283,7 @@ if st.session_state.mode == "universal":
 
         if numeric_cols:
             st.markdown("### 📐 Numeric Summary")
-            kpis = compute_kpis(raw_df, numeric_cols)
+            kpis = cached_compute_kpis(dfh, raw_df, numeric_cols)
             cols_per_row = min(4, len(kpis))
             for i in range(0, len(kpis), cols_per_row):
                 row_kpis = kpis[i:i + cols_per_row]
@@ -296,23 +303,23 @@ if st.session_state.mode == "universal":
                 fig = px.bar(cdata, x=cat, y="Count", title=f"Top Values — {cat}",
                              color="Count", color_continuous_scale="Viridis")
                 _apply_layout(fig, height=380, showlegend=False)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
         with col_right:
             if len(numeric_cols) >= 2:
-                fig = px.scatter(raw_df, x=numeric_cols[0], y=numeric_cols[1],
+                fig = px.scatter(raw_df.head(5000), x=numeric_cols[0], y=numeric_cols[1],
                                  title=f"{numeric_cols[0]} vs {numeric_cols[1]}", opacity=0.6)
                 _apply_layout(fig, height=380)
                 fig.update_traces(marker=dict(color=CHART_COLORS[0], size=5))
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
             elif numeric_cols:
                 fig = px.histogram(raw_df, x=numeric_cols[0],
                                    title=f"Distribution — {numeric_cols[0]}", nbins=30)
                 _apply_layout(fig, height=380, showlegend=False)
                 fig.update_traces(marker_color=CHART_COLORS[0])
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
 
         st.markdown("### 🧠 Auto-Generated Insights")
-        insights = generate_generic_insights(raw_df, col_types)
+        insights = cached_generic_insights(dfh, raw_df, col_types)
         for insight in insights:
             render_insight_card(insight)
 
@@ -331,16 +338,19 @@ if st.session_state.mode == "universal":
                     cols = st.columns(2)
                     for j, col_name in enumerate(selected[i:i+2]):
                         with cols[j]:
-                            fig = px.histogram(raw_df, x=col_name,
-                                               title=f"Distribution — {col_name}",
-                                               nbins=30, marginal="box")
-                            _apply_layout(fig, height=380, showlegend=False)
-                            fig.update_traces(marker_color=CHART_COLORS[(i + j) % len(CHART_COLORS)])
-                            st.plotly_chart(fig, use_container_width=True)
+                            try:
+                                fig = px.histogram(raw_df, x=col_name,
+                                                   title=f"Distribution — {col_name}",
+                                                   nbins=30, marginal="box")
+                                _apply_layout(fig, height=380, showlegend=False)
+                                fig.update_traces(marker_color=CHART_COLORS[(i + j) % len(CHART_COLORS)])
+                                st.plotly_chart(fig, width='stretch')
+                            except Exception as e:
+                                st.warning(f"⚠️ Could not plot {col_name}: {e}")
 
                 st.markdown("### 📋 Descriptive Statistics")
                 desc = raw_df[numeric_cols].describe().round(2)
-                st.dataframe(desc, use_container_width=True)
+                st.dataframe(desc, width='stretch')
                 download_csv(desc.reset_index(), "descriptive_stats.csv")
 
         with tab2:
@@ -355,14 +365,14 @@ if st.session_state.mode == "universal":
                                  title=f"Value Counts — {sel_cat}",
                                  color=sel_cat, color_discrete_sequence=CHART_COLORS)
                     _apply_layout(fig, height=400, showlegend=False)
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
                 with cb:
                     fig = px.pie(cat_data, names=sel_cat, values="Count",
                                  title=f"Share — {sel_cat}",
                                  hole=0.4, color_discrete_sequence=CHART_COLORS)
                     _apply_layout(fig, height=400)
-                    st.plotly_chart(fig, use_container_width=True)
-                st.dataframe(cat_data, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
+                st.dataframe(cat_data, width='stretch')
 
     # ── PAGE: RELATIONSHIPS ─────────────────────
     elif page == "🔗 Relationships":
@@ -373,20 +383,21 @@ if st.session_state.mode == "universal":
         else:
             st.markdown("### 🔥 Correlation Matrix")
             corr = compute_correlations(raw_df, numeric_cols)
-            fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r",
-                            zmin=-1, zmax=1, title="Correlation Matrix")
-            _apply_layout(fig, height=max(400, len(numeric_cols) * 45))
-            st.plotly_chart(fig, use_container_width=True)
+            if not corr.empty:
+                fig = px.imshow(corr, text_auto=".2f", color_continuous_scale="RdBu_r",
+                                zmin=-1, zmax=1, title="Correlation Matrix")
+                _apply_layout(fig, height=max(400, len(numeric_cols) * 45))
+                st.plotly_chart(fig, width='stretch')
 
-            st.markdown("### 🏆 Strongest Correlations")
-            top_c = find_top_correlations(corr, min(8, len(numeric_cols)))
-            if top_c:
-                cdf = pd.DataFrame(top_c)
-                cdf.columns = ["Column A", "Column B", "Correlation"]
-                cdf["Strength"] = cdf["Correlation"].abs().apply(
-                    lambda x: "🟢 Strong" if x > 0.7 else ("🟡 Moderate" if x > 0.4 else "⚪ Weak")
-                )
-                st.dataframe(cdf, use_container_width=True)
+                st.markdown("### 🏆 Strongest Correlations")
+                top_c = find_top_correlations(corr, min(8, len(numeric_cols)))
+                if top_c:
+                    cdf = pd.DataFrame(top_c)
+                    cdf.columns = ["Column A", "Column B", "Correlation"]
+                    cdf["Strength"] = cdf["Correlation"].abs().apply(
+                        lambda x: "🟢 Strong" if x > 0.7 else ("🟡 Moderate" if x > 0.4 else "⚪ Weak")
+                    )
+                    st.dataframe(cdf, width='stretch')
 
             st.markdown("### 🎯 Scatter Explorer")
             s1, s2 = st.columns(2)
@@ -401,11 +412,11 @@ if st.session_state.mode == "universal":
                 if color_opt == "None":
                     color_opt = None
 
-            fig = px.scatter(raw_df, x=x_col, y=y_col, color=color_opt,
+            fig = px.scatter(raw_df.head(5000), x=x_col, y=y_col, color=color_opt,
                              title=f"{x_col} vs {y_col}", opacity=0.6,
                              color_discrete_sequence=CHART_COLORS)
             _apply_layout(fig, height=500)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
     # ── PAGE: TIME ANALYSIS ─────────────────────
     elif page == "📈 Time Analysis":
@@ -423,21 +434,24 @@ if st.session_state.mode == "universal":
                     pcol = tdata.columns[0]
                     for metric in metric_cols:
                         if metric in tdata.columns:
-                            fig = px.line(tdata, x=pcol, y=metric,
-                                          title=f"{metric} over {pcol}", markers=True)
-                            _apply_layout(fig)
-                            fig.update_traces(line=dict(width=2))
-                            st.plotly_chart(fig, use_container_width=True)
+                            try:
+                                fig = px.line(tdata, x=pcol, y=metric,
+                                              title=f"{metric} over {pcol}", markers=True)
+                                _apply_layout(fig)
+                                fig.update_traces(line=dict(width=2))
+                                st.plotly_chart(fig, width='stretch')
+                            except Exception as e:
+                                st.warning(f"⚠️ Could not plot {metric}: {e}")
 
                     if "Records" in tdata.columns:
                         fig = px.bar(tdata, x=pcol, y="Records",
                                      title=f"Record Count per {pcol}")
                         _apply_layout(fig, height=350, showlegend=False)
                         fig.update_traces(marker_color=CHART_COLORS[2])
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
 
                     st.markdown("### 📋 Time Aggregation Table")
-                    st.dataframe(tdata.round(2), use_container_width=True)
+                    st.dataframe(tdata.round(2), width='stretch')
                     download_csv(tdata, "time_analysis.csv")
                 else:
                     st.warning("Could not aggregate data over time.")
@@ -458,7 +472,7 @@ if st.session_state.mode == "universal":
                                  title=f"Total {gmetrics[0]} by {gcol}",
                                  color=gcol, color_discrete_sequence=CHART_COLORS)
                     _apply_layout(fig, showlegend=False)
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
 
                 if len(gmetrics) > 1:
                     mcols = [f"{c}_mean" for c in gmetrics if f"{c}_mean" in gdata.columns]
@@ -471,13 +485,13 @@ if st.session_state.mode == "universal":
                                      title=f"Average Metrics by {gcol}",
                                      color_discrete_sequence=CHART_COLORS)
                         _apply_layout(fig)
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, width='stretch')
 
                 st.markdown("### 📋 Full Summary Table")
-                st.dataframe(gdata, use_container_width=True, height=400)
+                st.dataframe(gdata, width='stretch', height=400)
                 download_csv(gdata, f"group_by_{gcol}.csv")
 
-    # ── PAGE: DATA EXPLORER ─────────────────────
+    # ── PAGE: DATA EXPLORER (with pagination) ───
     elif page == "🔎 Data Explorer":
         section_header("🔎", "Data Explorer", "Search, filter, and export your data")
 
@@ -493,7 +507,21 @@ if st.session_state.mode == "universal":
             display_df = display_df[mask]
             st.caption(f"Showing {len(display_df):,} matching rows")
 
-        st.dataframe(display_df, use_container_width=True, height=500)
+        # Pagination for large datasets
+        PAGE_SIZE = 500
+        total_rows = len(display_df)
+        if total_rows > PAGE_SIZE:
+            total_pages = (total_rows + PAGE_SIZE - 1) // PAGE_SIZE
+            page_num = st.number_input(
+                f"Page (1-{total_pages})", min_value=1, max_value=total_pages, value=1
+            )
+            start_idx = (page_num - 1) * PAGE_SIZE
+            end_idx = min(start_idx + PAGE_SIZE, total_rows)
+            st.caption(f"Showing rows {start_idx + 1:,}–{end_idx:,} of {total_rows:,}")
+            st.dataframe(display_df.iloc[start_idx:end_idx], width='stretch', height=500)
+        else:
+            st.dataframe(display_df, width='stretch', height=500)
+
         download_csv(display_df, f"{st.session_state.filename}_filtered.csv")
 
         if numeric_cols:
@@ -502,7 +530,7 @@ if st.session_state.mode == "universal":
             outliers = detect_outliers(raw_df, out_col)
             if len(outliers) > 0:
                 st.warning(f"Found {len(outliers)} outliers in **{out_col}**")
-                st.dataframe(outliers.head(20), use_container_width=True)
+                st.dataframe(outliers.head(50), width='stretch')
             else:
                 st.success(f"No significant outliers in **{out_col}**")
 
@@ -513,11 +541,32 @@ if st.session_state.mode == "universal":
 #  E-COMMERCE DEEP DIVE MODE
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.mode == "ecommerce":
-    ecom = _load_ecommerce_modules()
+    # ── E-Commerce imports (loaded only when needed) ──
+    from src.data_loader import load_data, preprocess_data
+    from src.analysis import (
+        key_metrics, period_comparison, sales_by_dimension,
+        profit_by_dimension, full_dimension_summary, monthly_trends,
+        quarterly_trends, top_products, bottom_products,
+        customer_segmentation, rfm_analysis, abc_analysis,
+        cohort_analysis, detect_anomalies, sales_forecast,
+        discount_impact, correlation_analysis, yoy_growth,
+    )
+    from src.insights import (
+        generate_executive_summary, generate_product_recommendations,
+        generate_anomaly_narrative,
+    )
+    from src.visualization import (
+        kpi_sparkline, bar_chart, grouped_bar, sales_profit_bars,
+        sales_treemap, trend_line, forecast_chart, donut_chart,
+        scatter_sales_profit, sales_heatmap, correlation_heatmap,
+        profit_waterfall, pareto_chart, anomaly_chart,
+        rfm_scatter, cohort_heatmap, discount_impact_chart, yoy_chart,
+    )
+    from src.config import fmt_currency, fmt_pct, fmt_number
 
     with st.sidebar:
         st.markdown("# 📊 Analytics Platform")
-        if st.button("⬅️ Upload New File", use_container_width=True):
+        if st.button("⬅️ Upload New File", width='stretch'):
             reset_state()
             st.rerun()
         st.markdown("---")
@@ -565,44 +614,6 @@ elif st.session_state.mode == "ecommerce":
         st.warning("⚠️ No data matches filters.")
         st.stop()
 
-    # Extract functions
-    key_metrics = ecom["key_metrics"]
-    period_comparison = ecom["period_comparison"]
-    monthly_trends = ecom["monthly_trends"]
-    customer_segmentation = ecom["customer_segmentation"]
-    full_dimension_summary = ecom["full_dimension_summary"]
-    rfm_analysis = ecom["rfm_analysis"]
-    abc_analysis = ecom["abc_analysis"]
-    cohort_analysis = ecom["cohort_analysis"]
-    detect_anomalies_fn = ecom["detect_anomalies"]
-    sales_forecast = ecom["sales_forecast"]
-    discount_impact = ecom["discount_impact"]
-    correlation_analysis = ecom["correlation_analysis"]
-    yoy_growth = ecom["yoy_growth"]
-    top_products = ecom["top_products"]
-    bottom_products = ecom["bottom_products"]
-    generate_executive_summary = ecom["generate_executive_summary"]
-    generate_product_recommendations = ecom["generate_product_recommendations"]
-    generate_anomaly_narrative = ecom["generate_anomaly_narrative"]
-    trend_line = ecom["trend_line"]
-    donut_chart = ecom["donut_chart"]
-    sales_treemap = ecom["sales_treemap"]
-    sales_heatmap = ecom["sales_heatmap"]
-    sales_profit_bars = ecom["sales_profit_bars"]
-    profit_waterfall = ecom["profit_waterfall"]
-    scatter_sales_profit = ecom["scatter_sales_profit"]
-    discount_impact_chart = ecom["discount_impact_chart"]
-    correlation_heatmap = ecom["correlation_heatmap"]
-    rfm_scatter = ecom["rfm_scatter"]
-    cohort_heatmap = ecom["cohort_heatmap"]
-    pareto_chart = ecom["pareto_chart"]
-    anomaly_chart = ecom["anomaly_chart"]
-    forecast_chart = ecom["forecast_chart"]
-    yoy_chart = ecom["yoy_chart"]
-    fmt_currency = ecom["fmt_currency"]
-    fmt_pct = ecom["fmt_pct"]
-    fmt_number = ecom["fmt_number"]
-
     # ── E-COMMERCE PAGES ──
     if page == "🏠 Executive Overview":
         st.markdown("# 🏠 Executive Overview")
@@ -623,51 +634,54 @@ elif st.session_state.mode == "ecommerce":
         cl, cr = st.columns([3, 2])
         with cl:
             monthly = monthly_trends(df)
-            st.plotly_chart(trend_line(monthly, "Revenue & Profit Trend"), use_container_width=True)
+            safe_chart(trend_line, monthly, "Revenue & Profit Trend")
         with cr:
             seg = customer_segmentation(df)
-            st.plotly_chart(donut_chart(seg.index.tolist(), seg["Sales"].tolist(), "Revenue by Segment"), use_container_width=True)
+            safe_chart(donut_chart, seg.index.tolist(), seg["Sales"].tolist(), "Revenue by Segment")
         st.markdown("### 🧠 AI-Powered Insights")
         for ins in generate_executive_summary(df):
             render_insight_card(ins)
 
     elif page == "💰 Sales Deep Dive":
         section_header("💰", "Sales Deep Dive", "Drill into revenue performance")
-        st.plotly_chart(sales_treemap(df), use_container_width=True)
+        safe_chart(sales_treemap, df)
         st.markdown("---")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(sales_heatmap(df), use_container_width=True)
+            safe_chart(sales_heatmap, df)
         with c2:
-            st.plotly_chart(sales_profit_bars(df, "Region", "Sales & Profit by Region"), use_container_width=True)
+            safe_chart(sales_profit_bars, df, "Region", "Sales & Profit by Region")
         st.markdown("---")
         st.markdown("### 📋 Detailed Breakdown")
         dim = st.selectbox("Analyze by", ["Region", "Category", "Sub-Category", "Segment"])
         summary = full_dimension_summary(df, dim)
-        st.dataframe(summary, use_container_width=True, height=350)
+        st.dataframe(summary, width='stretch', height=350)
         download_csv(summary.reset_index(), f"sales_by_{dim.lower()}.csv")
 
     elif page == "📈 Profitability":
         section_header("📈", "Profitability Analysis", "Understand profit drivers")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(profit_waterfall(df, "Category"), use_container_width=True)
+            safe_chart(profit_waterfall, df, "Category")
         with c2:
-            st.plotly_chart(scatter_sales_profit(df, "Sub-Category"), use_container_width=True)
+            safe_chart(scatter_sales_profit, df, "Sub-Category")
         st.markdown("---")
         st.markdown("### 💸 Discount Impact")
         disc = discount_impact(df)
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            st.plotly_chart(discount_impact_chart(disc), use_container_width=True)
-        with c2:
-            st.dataframe(disc, use_container_width=True, height=300)
+        if not disc.empty:
+            c1, c2 = st.columns([3, 2])
+            with c1:
+                safe_chart(discount_impact_chart, disc)
+            with c2:
+                st.dataframe(disc, width='stretch', height=300)
+        else:
+            st.info("Discount impact data not available.")
         st.markdown("---")
         st.markdown("### 🔗 Correlation Matrix")
         corr = correlation_analysis(df)
-        st.plotly_chart(correlation_heatmap(corr), use_container_width=True)
+        safe_chart(correlation_heatmap, corr)
         st.markdown("### 🚨 Loss-Making Products")
-        st.dataframe(bottom_products(df, 5), use_container_width=True)
+        st.dataframe(bottom_products(df, 5), width='stretch')
         st.markdown("### 🧠 Recommendations")
         for rec in generate_product_recommendations(df):
             render_insight_card(rec)
@@ -679,97 +693,103 @@ elif st.session_state.mode == "ecommerce":
             seg = customer_segmentation(df)
             c1, c2 = st.columns(2)
             with c1:
-                st.plotly_chart(donut_chart(seg.index.tolist(), seg["Sales"].tolist(), "Revenue by Segment"), use_container_width=True)
+                safe_chart(donut_chart, seg.index.tolist(), seg["Sales"].tolist(), "Revenue by Segment")
             with c2:
-                st.plotly_chart(donut_chart(seg.index.tolist(), seg["Profit"].tolist(), "Profit by Segment"), use_container_width=True)
-            st.dataframe(seg, use_container_width=True)
+                safe_chart(donut_chart, seg.index.tolist(), seg["Profit"].tolist(), "Profit by Segment")
+            st.dataframe(seg, width='stretch')
         with t2:
             st.markdown("### 🎯 RFM Segmentation")
-            rfm = rfm_analysis(df)
-            st.plotly_chart(rfm_scatter(rfm), use_container_width=True)
-            st.dataframe(rfm, use_container_width=True, height=400)
-            download_csv(rfm, "rfm_segmentation.csv")
+            try:
+                rfm = rfm_analysis(df)
+                safe_chart(rfm_scatter, rfm)
+                st.dataframe(rfm, width='stretch', height=400)
+                download_csv(rfm, "rfm_segmentation.csv")
+            except Exception as e:
+                st.warning(f"⚠️ RFM analysis could not be completed: {e}")
         with t3:
             st.markdown("### 📊 Cohort Retention")
-            retention = cohort_analysis(df)
-            st.plotly_chart(cohort_heatmap(retention), use_container_width=True)
+            try:
+                retention = cohort_analysis(df)
+                safe_chart(cohort_heatmap, retention)
+            except Exception as e:
+                st.warning(f"⚠️ Cohort analysis could not be completed: {e}")
 
     elif page == "📦 Product Analytics":
         section_header("📦", "Product Analytics", "ABC classification and performance")
         st.markdown("### 🏷️ ABC Classification")
         abc = abc_analysis(df)
-        st.plotly_chart(pareto_chart(abc), use_container_width=True)
+        safe_chart(pareto_chart, abc)
         c1, c2, c3 = st.columns(3)
         c1.metric("Class A (Top 80%)", f"{len(abc[abc['Class']=='A'])} products")
         c2.metric("Class B (Next 15%)", f"{len(abc[abc['Class']=='B'])} products")
         c3.metric("Class C (Bottom 5%)", f"{len(abc[abc['Class']=='C'])} products")
-        st.dataframe(abc, use_container_width=True, height=350)
+        st.dataframe(abc, width='stretch', height=350)
         download_csv(abc, "abc_classification.csv")
         st.markdown("---")
-        st.plotly_chart(scatter_sales_profit(df, "Sub-Category"), use_container_width=True)
+        safe_chart(scatter_sales_profit, df, "Sub-Category")
         st.markdown("### 🏆 Top Products")
         n = st.slider("Show top N", 5, 20, 10)
-        st.dataframe(top_products(df, n), use_container_width=True)
+        st.dataframe(top_products(df, n), width='stretch')
 
     elif page == "📉 Trends & Forecast":
         section_header("📉", "Trends & Forecasting", "Time-series with EMA projections")
         t1, t2, t3 = st.tabs(["Monthly Trends", "Forecasting", "Year-over-Year"])
         with t1:
             monthly = monthly_trends(df)
-            st.plotly_chart(trend_line(monthly, "Monthly Sales & Profit"), use_container_width=True)
+            safe_chart(trend_line, monthly, "Monthly Sales & Profit")
             gcols = [c for c in ["Date", "Sales", "Profit", "Sales MoM %", "Profit MoM %", "Margin %"] if c in monthly.columns]
-            st.dataframe(monthly[gcols], use_container_width=True, height=350)
+            st.dataframe(monthly[gcols], width='stretch', height=350)
             download_csv(monthly, "monthly_trends.csv")
         with t2:
             st.markdown("### 🔮 Sales Forecast (6 Months)")
             fd = sales_forecast(df, periods=6)
-            st.plotly_chart(forecast_chart(fd), use_container_width=True)
+            safe_chart(forecast_chart, fd)
         with t3:
             st.markdown("### 📅 Year-over-Year")
             yearly = yoy_growth(df)
-            st.plotly_chart(yoy_chart(yearly), use_container_width=True)
-            st.dataframe(yearly, use_container_width=True)
+            safe_chart(yoy_chart, yearly)
+            st.dataframe(yearly, width='stretch')
 
     elif page == "🗺️ Geographic Intelligence":
         section_header("🗺️", "Geographic Intelligence", "Regional performance")
         rsummary = full_dimension_summary(df, "Region")
         c1, c2 = st.columns(2)
         with c1:
-            st.plotly_chart(sales_profit_bars(df, "Region", "Sales & Profit by Region"), use_container_width=True)
+            safe_chart(sales_profit_bars, df, "Region", "Sales & Profit by Region")
         with c2:
-            st.plotly_chart(donut_chart(rsummary.index.tolist(), rsummary["Sales"].tolist(), "Market Share"), use_container_width=True)
+            safe_chart(donut_chart, rsummary.index.tolist(), rsummary["Sales"].tolist(), "Market Share")
         st.markdown("---")
         st.markdown("### 📊 Region × Category")
         pivot = df.pivot_table(index="Region", columns="Category", values="Sales", aggfunc="sum").fillna(0).round(0)
-        st.dataframe(pivot.style.format("${:,.0f}").background_gradient(cmap="Blues"), use_container_width=True)
+        st.dataframe(pivot.style.format("${:,.0f}").background_gradient(cmap="Blues"), width='stretch')
         st.markdown("---")
-        st.dataframe(rsummary, use_container_width=True)
+        st.dataframe(rsummary, width='stretch')
         download_csv(rsummary.reset_index(), "regional_performance.csv")
 
     elif page == "🚨 Anomalies & Alerts":
         section_header("🚨", "Anomalies & Alerts", "Statistical anomaly detection")
         t1, t2 = st.tabs(["Sales Anomalies", "Profit Anomalies"])
         with t1:
-            anom = detect_anomalies_fn(df, metric="Sales")
-            st.plotly_chart(anomaly_chart(anom), use_container_width=True)
+            anom = detect_anomalies(df, metric="Sales")
+            safe_chart(anomaly_chart, anom)
             ac = anom["Is Anomaly"].sum()
             st.metric("Anomalies Detected", f"{ac} months flagged")
             st.markdown("### 📝 Narrative")
-            for n in generate_anomaly_narrative(anom):
-                render_insight_card(n)
+            for narrative in generate_anomaly_narrative(anom):
+                render_insight_card(narrative)
             if ac > 0:
-                st.dataframe(anom[anom["Is Anomaly"]][["Date", "Sales", "Profit", "Z-Score", "Anomaly Type"]], use_container_width=True)
+                st.dataframe(anom[anom["Is Anomaly"]][["Date", "Sales", "Profit", "Z-Score", "Anomaly Type"]], width='stretch')
         with t2:
-            anom_p = detect_anomalies_fn(df, metric="Profit")
+            anom_p = detect_anomalies(df, metric="Profit")
             normal = anom_p[~anom_p["Is Anomaly"]]
-            anomaly = anom_p[anom_p["Is Anomaly"]]
+            anomaly_rows = anom_p[anom_p["Is Anomaly"]]
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=normal["Date"], y=normal["Profit"], mode="lines+markers", name="Normal", line=dict(color=COLORS["secondary"], width=2)))
-            if len(anomaly) > 0:
-                fig.add_trace(go.Scatter(x=anomaly["Date"], y=anomaly["Profit"], mode="markers", name="Anomaly", marker=dict(color=COLORS["danger"], size=14, symbol="x")))
+            if len(anomaly_rows) > 0:
+                fig.add_trace(go.Scatter(x=anomaly_rows["Date"], y=anomaly_rows["Profit"], mode="markers", name="Anomaly", marker=dict(color=COLORS["danger"], size=14, symbol="x")))
             fig.add_hline(y=anom_p["Profit"].mean(), line_dash="dash", line_color=COLORS["text_muted"], opacity=0.5)
             _apply_layout(fig, title="Anomaly Detection — Monthly Profit", height=440)
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
             st.metric("Profit Anomalies", f"{anom_p['Is Anomaly'].sum()} months flagged")
 
     render_footer()
