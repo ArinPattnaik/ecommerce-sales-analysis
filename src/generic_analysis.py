@@ -40,7 +40,7 @@ def detect_column_types(df: pd.DataFrame) -> Dict[str, List[str]]:
         # Try parsing as dates
         if series.dtype == object:
             try:
-                parsed = pd.to_datetime(series, infer_datetime_format=True, errors="coerce")
+                parsed = pd.to_datetime(series, format="mixed", errors="coerce")
                 valid_ratio = parsed.notna().sum() / len(series)
                 if valid_ratio > 0.7:
                     result["datetime"].append(col)
@@ -118,6 +118,8 @@ def data_profile(df: pd.DataFrame) -> Dict:
 # ═══════════════════════════════════════════════
 def compute_kpis(df: pd.DataFrame, numeric_cols: List[str]) -> List[Dict]:
     """Generate KPI cards for each numeric column."""
+    if not numeric_cols:
+        return []
     kpis = []
     for col in numeric_cols[:12]:  # Cap at 12 KPIs
         series = df[col].dropna()
@@ -166,8 +168,11 @@ def compute_categorical_distribution(df: pd.DataFrame, col: str, top_n: int = 15
 #  CORRELATIONS
 # ═══════════════════════════════════════════════
 def compute_correlations(df: pd.DataFrame, numeric_cols: List[str]) -> pd.DataFrame:
-    """Correlation matrix for numeric columns."""
-    cols = [c for c in numeric_cols if c in df.columns]
+    """Correlation matrix for numeric columns.
+
+    Returns empty DataFrame if fewer than 2 valid numeric columns.
+    """
+    cols = [c for c in numeric_cols if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
     if len(cols) < 2:
         return pd.DataFrame()
     return df[cols].corr().round(3)

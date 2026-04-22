@@ -1,3 +1,3 @@
-"""E-Commerce Sales Analysis Package — v2.0"""
+"""Universal Analytics Platform — v2.1"""
 
-__version__ = "2.0.0"
+__version__ = "2.1.0"

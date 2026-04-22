@@ -1,6 +1,7 @@
 # Git
 .git
 .gitignore
+.github
 
 # Python
 __pycache__
@@ -21,13 +22,16 @@ nosetests.xml
 coverage.xml
 *.cover
 *.log
-.git
 .mypy_cache
 .pytest_cache
 .hypothesis
 
 # Jupyter Notebook
 .ipynb_checkpoints
+notebooks/
+
+# Tests (not needed in production image)
+tests/
 
 # IDE
 .vscode
@@ -37,12 +41,15 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-# Data (optional - comment out if you want to include sample data)
-# data/
-
 # Documentation builds
 docs/_build/
 
 # Temporary files
 *.tmp
 *.temp
+
+# Dev files
+requirements-dev.txt
+pyproject.toml
+CONTRIBUTING.md
+CHANGELOG.md

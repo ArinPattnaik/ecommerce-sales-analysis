@@ -4,6 +4,9 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
+# Create non-root user for security
+RUN useradd -m -r appuser
+
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc curl \
@@ -17,7 +20,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create .streamlit directory if not present
-RUN mkdir -p .streamlit
+RUN mkdir -p .streamlit && chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose port for Streamlit
 EXPOSE 8501
